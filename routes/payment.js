@@ -3,17 +3,19 @@ const crypto = require('crypto');
 const https = require('https');
 const router = express.Router();
 const { Orders } = require('../models/orders');
-const Cart = require('../models/cart'); // Import model giỏ hàng
-const Product = require('../models/products'); // Import model sản phẩm (nếu cần)
+const Cart = require('../models/cart'); // Model giỏ hàng
+const Product = require('../models/products'); // Model sản phẩm nếu cần
 
 // Hàm xác thực chữ ký từ MoMo
 const verifySignature = (data, signature, secretKey) => {
+    // Tạo chuỗi rawSignature theo đúng thứ tự bảng chữ cái của các tham số
     const rawSignature = Object.keys(data)
-        .filter(key => key !== 'signature' && data[key]) // Loại bỏ `signature` và các giá trị null/undefined
-        .sort()
+        .filter(key => key !== 'signature' && data[key]) // Loại bỏ 'signature' và các giá trị null/undefined
+        .sort() // Sắp xếp các tham số theo thứ tự bảng chữ cái
         .map(key => `${key}=${data[key]}`)
         .join('&');
 
+    // Tạo chữ ký bằng HMAC SHA256 với secretKey
     const computedSignature = crypto.createHmac('sha256', secretKey)
         .update(rawSignature)
         .digest('hex');
@@ -30,8 +32,8 @@ router.post('/pay', async (req, res) => {
     const requestId = orderId;
     const amount = req.body.amount;
     const orderInfo = "Thanh toán qua MoMo";
-    const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return";
-    const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify";
+    const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return"; // URL trả về sau khi thanh toán
+    const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify"; // URL nhận thông báo IPN
     const requestType = "captureWallet";
     const extraData = "";
 
@@ -157,7 +159,6 @@ router.post('/notify', async (req, res) => {
         res.status(400).send('Lỗi thanh toán');
     }
 });
-
 
 // Route trả về sau thanh toán
 router.get('/return', (req, res) => {
