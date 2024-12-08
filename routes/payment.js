@@ -6,7 +6,18 @@ const { Orders } = require('../models/orders');
 const { Cart } = require('../models/cart');
 const Product = require('../models/products'); // Model sản phẩm nếu cần
 
+function verifyMoMoSignature(data, signature) {
+    // Sắp xếp các key của data theo thứ tự alphabet
+    const sortedKeys = Object.keys(data).filter(key => key !== 'signature').sort();
+    const rawSignature = sortedKeys.map(key => `${key}=${data[key]}`).join('&');
 
+    // Tạo chữ ký bằng secretKey của bạn (lấy từ MoMo)
+    const secretKey = 'K951B6PE1waDMi640xX08PD3vg6EkVlz'; // Thay bằng secret key thực tế
+    const hash = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
+
+    // So sánh chữ ký
+    return hash === signature;
+}
 // Route thanh toán MoMo
 router.post('/pay', async (req, res) => {
     const partnerCode = "MOMO";
