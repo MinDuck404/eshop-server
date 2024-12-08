@@ -117,7 +117,7 @@ router.post('/notify', async (req, res) => {
     try {
         console.log('Received IPN notification:', req.body);
         
-        const { orderId, resultCode, extraData } = req.body;
+        const { orderId, resultCode, extraData } = req.query;
 
         // Kiểm tra kết quả thanh toán
         if (resultCode === '0') {
