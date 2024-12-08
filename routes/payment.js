@@ -141,8 +141,10 @@ router.post('/notify', async (req, res) => {
             order.paymentDate = new Date();
             await order.save();
 
-            // Xóa sản phẩm trong giỏ hàng
-            await Cart.deleteMany({ userId: order.userid });
+            console.log(`Xóa giỏ hàng của user: ${order.userid}`);
+            // Xóa giỏ hàng
+            const deleteResult = await Cart.deleteMany({ userId: order.userid });
+            console.log(`Số lượng sản phẩm đã xóa: ${deleteResult.deletedCount}`);
 
             console.log(`Đơn hàng ${orderId} đã được thanh toán và giỏ hàng đã được xóa.`);
             res.status(200).send('OK');
@@ -155,6 +157,7 @@ router.post('/notify', async (req, res) => {
         res.status(400).send('Lỗi thanh toán');
     }
 });
+
 
 // Route trả về sau thanh toán
 router.get('/return', (req, res) => {
