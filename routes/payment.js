@@ -3,24 +3,24 @@ const crypto = require('crypto');
 const https = require('https');
 const router = express.Router();
 const { Orders } = require('../models/orders');
-const Cart = require('../models/cart'); // Model giỏ hàng
+const { Cart } = require('../models/cart');
 const Product = require('../models/products'); // Model sản phẩm nếu cần
 
 // Hàm xác thực chữ ký từ MoMo
-const verifySignature = (data, signature, secretKey) => {
-    // Tạo chuỗi rawSignature theo đúng thứ tự bảng chữ cái của các tham số
-    const rawSignature = Object.keys(data)
-        .filter(key => key !== 'signature' && data[key]) // Loại bỏ 'signature' và các giá trị null/undefined
-        .sort() // Sắp xếp các tham số theo thứ tự bảng chữ cái
-        .map(key => `${key}=${data[key]}`)
-        .join('&');
-
-    // Tạo chữ ký bằng HMAC SHA256 với secretKey
-    const computedSignature = crypto.createHmac('sha256', secretKey)
+const verifyReturnSignature = (data) => {
+    const secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz";
+    const { orderId, resultCode, message, extraData } = data;
+    
+    // Tạo chuỗi rawSignature cho URL return
+    const rawSignature = `orderId=${orderId}&message=${message}&resultCode=${resultCode}&extraData=${extraData || ''}`;
+    
+    // Tạo chữ ký mới
+    const signature = crypto
+        .createHmac('sha256', secretKey)
         .update(rawSignature)
         .digest('hex');
-
-    return computedSignature === signature;
+        
+    return signature;
 };
 
 // Route thanh toán MoMo
@@ -174,14 +174,35 @@ router.post('/notify', async (req, res) => {
 
 // Route trả về sau thanh toán
 router.get('/return', async (req, res) => {
-    const { orderId, resultCode, message, extraData } = req.query;
+    const { orderId, resultCode, message, extraData, signature } = req.query;
     
     try {
+        // Xác thực chữ ký
+        const expectedSignature = verifyReturnSignature(req.query);
+        if (signature !== expectedSignature) {
+            console.error(`Chữ ký không hợp lệ: Order ID ${orderId}`);
+            return res.send(`
+                <html>
+                    <head><title>Lỗi Xác Thực</title></head>
+                    <body>
+                        <h1>Lỗi xác thực thanh toán</h1>
+                        <p>Vui lòng liên hệ với bộ phận hỗ trợ</p>
+                    </body>
+                </html>
+            `);
+        }
+
         if (resultCode === '0') {
-            // Parse extraData to get order information
-            const orderData = JSON.parse(Buffer.from(extraData, 'base64').toString());
-            
-            // Create new order
+            // Parse extraData nếu có
+            let orderData;
+            try {
+                orderData = extraData ? JSON.parse(Buffer.from(extraData, 'base64').toString()) : {};
+            } catch (e) {
+                console.error('Error parsing extraData:', e);
+                orderData = {};
+            }
+
+            // Tạo đơn hàng mới
             const order = new Orders({
                 paymentId: orderId,
                 name: orderData.name,
@@ -196,44 +217,51 @@ router.get('/return', async (req, res) => {
                 status: 'paid'
             });
 
-            // Save order to database
+            // Lưu đơn hàng
             await order.save();
 
-            // Delete cart items for the user
-            await Cart.deleteMany({ userId: orderData.userid });
+            // Xóa giỏ hàng
+            if (orderData.userid) {
+                try {
+                    await Cart.find({ userId: orderData.userid }).deleteMany();
+                    console.log(`Đã xóa giỏ hàng của user ${orderData.userid}`);
+                } catch (error) {
+                    console.error('Error deleting cart:', error);
+                }
+            }
 
-            // Redirect to success page or send success response
+            // Chuyển hướng đến trang thành công
             res.send(`
                 <html>
                     <head>
                         <title>Payment Success</title>
+                        <meta charset="UTF-8">
                     </head>
                     <body>
                         <h1>Thanh toán thành công</h1>
-                        <p>Order ID: ${orderId}</p>
+                        <p>Mã đơn hàng: ${orderId}</p>
                         <p>Đơn hàng của bạn đã được xác nhận</p>
                         <script>
-                            // Redirect to order confirmation page after 3 seconds
                             setTimeout(() => {
-                                window.location.href = '/orders/${order._id}';
+                                window.location.href = '/order-confirmation/${order._id}';
                             }, 3000);
                         </script>
                     </body>
                 </html>
             `);
         } else {
-            // Payment failed
+            // Thanh toán thất bại
             res.send(`
                 <html>
                     <head>
                         <title>Payment Failed</title>
+                        <meta charset="UTF-8">
                     </head>
                     <body>
                         <h1>Thanh toán không thành công</h1>
-                        <p>Order ID: ${orderId}</p>
+                        <p>Mã đơn hàng: ${orderId}</p>
                         <p>Lỗi: ${message}</p>
                         <script>
-                            // Redirect to cart page after 3 seconds
                             setTimeout(() => {
                                 window.location.href = '/cart';
                             }, 3000);
@@ -248,10 +276,12 @@ router.get('/return', async (req, res) => {
             <html>
                 <head>
                     <title>Error</title>
+                    <meta charset="UTF-8">
                 </head>
                 <body>
                     <h1>Đã xảy ra lỗi</h1>
                     <p>Vui lòng thử lại sau</p>
+                    <p>Chi tiết lỗi: ${error.message}</p>
                 </body>
             </html>
         `);
