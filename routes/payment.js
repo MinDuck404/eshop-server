@@ -134,7 +134,7 @@ router.post('/notify', async (req, res) => {
             // Cập nhật đơn hàng với trạng thái "confirmed"
             const order = await Orders.findOne({ paymentId: orderId });
             if (order) {
-                order.status = 'confirmed'; // Cập nhật trạng thái
+                order.status = 'confirm'; // Cập nhật trạng thái
                 await order.save();
                 console.log(`Order updated successfully: ${orderId}`);
             }
