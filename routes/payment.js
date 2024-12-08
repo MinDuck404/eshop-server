@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const https = require('https');
 const router = express.Router();
-const Orders = require('../models/orders'); // Mô hình đơn hàng
+const { Orders } = require('../models/orders');
 const Product = require('../models/products'); // Mô hình sản phẩm
 
 // Giả lập database (thực tế sẽ dùng MongoDB)
