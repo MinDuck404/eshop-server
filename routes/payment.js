@@ -23,6 +23,7 @@ const verifySignature = (data, signature, secretKey) => {
     return computedSignature === signature;
 };
 
+// Route thanh toán MoMo
 router.post('/pay', async (req, res) => {
     const partnerCode = "MOMO";
     const accessKey = "F8BBA842ECF85";
@@ -34,12 +35,22 @@ router.post('/pay', async (req, res) => {
     const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return"; // URL trả về sau khi thanh toán
     const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify"; // URL nhận thông báo IPN
     const requestType = "captureWallet";
-    const extraData = "";
 
     // Tạo chữ ký bảo mật
     const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
     const signature = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
-
+    const orderData = {
+        name: req.body.name,
+        phoneNumber: req.body.phoneNumber,
+        address: req.body.address,
+        pincode: req.body.pincode,
+        amount: req.body.amount,
+        email: req.body.email,
+        userid: req.body.userid,
+        products: req.body.products
+    };
+    
+    const extraData = Buffer.from(JSON.stringify(orderData)).toString('base64');
     const requestBody = JSON.stringify({
         partnerCode,
         accessKey,
@@ -54,6 +65,28 @@ router.post('/pay', async (req, res) => {
         signature,
         lang: 'en'
     });
+
+    // Lưu thông tin đơn hàng vào cơ sở dữ liệu
+    const newOrder = new Orders({
+        name: req.body.name,
+        phoneNumber: req.body.phoneNumber,
+        address: req.body.address,
+        pincode: req.body.pincode,
+        amount,
+        paymentId: orderId,
+        email: req.body.email,
+        userid: req.body.userid,
+        products: req.body.products,
+        status: "pending",
+    });
+
+    try {
+        await newOrder.save();
+        console.log(`Order created with ID: ${orderId}`);
+    } catch (err) {
+        console.error(`Error creating order: ${err.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to create order' });
+    }
 
     // Gửi yêu cầu thanh toán tới MoMo
     const options = {
@@ -107,30 +140,25 @@ router.post('/notify', async (req, res) => {
 
     if (resultCode === 0) { // Thanh toán thành công
         try {
-            // Tạo đơn hàng sau khi thanh toán thành công
-            const order = new Orders({
-                paymentId: orderId,
-                amount,
-                status: 'paid',
-                paymentDate: new Date(),
-                // Lưu các thông tin khác của đơn hàng
-                name: req.body.name,
-                phoneNumber: req.body.phoneNumber,
-                address: req.body.address,
-                pincode: req.body.pincode,
-                email: req.body.email,
-                userid: req.body.userid,
-                products: req.body.products, // Cần đảm bảo sản phẩm từ request body
-            });
+            // Tìm đơn hàng trong cơ sở dữ liệu bằng paymentId
+            const order = await Orders.findOne({ paymentId: orderId });
 
-            // Lưu đơn hàng vào cơ sở dữ liệu
+            if (!order) {
+                console.error(`Không tìm thấy đơn hàng: ${orderId}`);
+                return res.status(404).send('Đơn hàng không tồn tại');
+            }
+
+            // Cập nhật trạng thái đơn hàng thành 'paid'
+            order.status = 'paid';
+            order.paymentDate = new Date();
             await order.save();
-            console.log(`Đơn hàng ${orderId} đã được tạo và thanh toán`);
 
-            // Xóa giỏ hàng của người dùng
-            const deleteResult = await Cart.deleteMany({ userId: req.body.userid });
-            console.log(`Giỏ hàng của user ${req.body.userid} đã được xóa. Sản phẩm đã xóa: ${deleteResult.deletedCount}`);
+            console.log(`Xóa giỏ hàng của user: ${order.userid}`);
+            // Xóa giỏ hàng của người dùng theo userId
+            const deleteResult = await Cart.deleteMany({ userId: order.userid });
+            console.log(`Số lượng sản phẩm đã xóa: ${deleteResult.deletedCount}`);
 
+            console.log(`Đơn hàng ${orderId} đã được thanh toán và giỏ hàng đã được xóa.`);
             res.status(200).send('OK');
         } catch (err) {
             console.error(`Lỗi cập nhật đơn hàng: ${err.message}`);
@@ -143,17 +171,89 @@ router.post('/notify', async (req, res) => {
 });
 
 
-
 // Route trả về sau thanh toán
-router.get('/return', (req, res) => {
-    const { orderId, resultCode, message } = req.query;
+router.get('/return', async (req, res) => {
+    const { orderId, resultCode, message, extraData } = req.query;
+    
+    try {
+        if (resultCode === '0') {
+            // Parse extraData to get order information
+            const orderData = JSON.parse(Buffer.from(extraData, 'base64').toString());
+            
+            // Create new order
+            const order = new Orders({
+                paymentId: orderId,
+                name: orderData.name,
+                phoneNumber: orderData.phoneNumber,
+                address: orderData.address,
+                pincode: orderData.pincode,
+                amount: orderData.amount,
+                email: orderData.email,
+                userid: orderData.userid,
+                products: orderData.products,
+                date: new Date(),
+                status: 'paid'
+            });
 
-    if (resultCode === '0') {
-        // Thanh toán thành công
-        res.send(`<h1>Thanh toán thành công</h1><p>Order ID: ${orderId}</p>`);
-    } else {
-        // Thanh toán thất bại
-        res.send(`<h1>Thanh toán không thành công</h1><p>Order ID: ${orderId}</p><p>${message}</p>`);
+            // Save order to database
+            await order.save();
+
+            // Delete cart items for the user
+            await Cart.deleteMany({ userId: orderData.userid });
+
+            // Redirect to success page or send success response
+            res.send(`
+                <html>
+                    <head>
+                        <title>Payment Success</title>
+                    </head>
+                    <body>
+                        <h1>Thanh toán thành công</h1>
+                        <p>Order ID: ${orderId}</p>
+                        <p>Đơn hàng của bạn đã được xác nhận</p>
+                        <script>
+                            // Redirect to order confirmation page after 3 seconds
+                            setTimeout(() => {
+                                window.location.href = '/orders/${order._id}';
+                            }, 3000);
+                        </script>
+                    </body>
+                </html>
+            `);
+        } else {
+            // Payment failed
+            res.send(`
+                <html>
+                    <head>
+                        <title>Payment Failed</title>
+                    </head>
+                    <body>
+                        <h1>Thanh toán không thành công</h1>
+                        <p>Order ID: ${orderId}</p>
+                        <p>Lỗi: ${message}</p>
+                        <script>
+                            // Redirect to cart page after 3 seconds
+                            setTimeout(() => {
+                                window.location.href = '/cart';
+                            }, 3000);
+                        </script>
+                    </body>
+                </html>
+            `);
+        }
+    } catch (error) {
+        console.error('Error processing payment return:', error);
+        res.status(500).send(`
+            <html>
+                <head>
+                    <title>Error</title>
+                </head>
+                <body>
+                    <h1>Đã xảy ra lỗi</h1>
+                    <p>Vui lòng thử lại sau</p>
+                </body>
+            </html>
+        `);
     }
 });
 
