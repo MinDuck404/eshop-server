@@ -163,24 +163,13 @@ router.post('/notify', async (req, res) => {
                 console.error('Error parsing extraData:', error);
             }
 
-            // Tạo đơn hàng mới
-            const order = new Orders({
-                paymentId: orderId,
-                name: orderData?.name,
-                phoneNumber: orderData?.phoneNumber,
-                address: orderData?.address,
-                pincode: orderData?.pincode,
-                amount: req.body.amount,
-                email: orderData?.email,
-                userid: orderData?.userid,
-                products: orderData?.products,
-                date: new Date(),
-                status: 'Confirm'
-            });
-
-            // Lưu đơn hàng
-            await order.save();
-            console.log(`Order saved successfully: ${orderId}`);
+            // Cập nhật đơn hàng với trạng thái "confirmed"
+            const order = await Orders.findOne({ paymentId: orderId });
+            if (order) {
+                order.status = 'confirmed'; // Cập nhật trạng thái
+                await order.save();
+                console.log(`Order updated successfully: ${orderId}`);
+            }
 
             // Xóa giỏ hàng nếu có userid
             if (orderData?.userid) {
@@ -197,6 +186,7 @@ router.post('/notify', async (req, res) => {
             console.log(`Payment failed for order ${orderId}, result code: ${resultCode}`);
             return res.status(400).json({ message: 'Payment failed' });
         }
+
     } catch (error) {
         console.error('Error processing IPN:', error);
         return res.status(500).json({ message: 'Internal server error' });
