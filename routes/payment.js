@@ -118,6 +118,7 @@ router.post('/pay', async (req, res) => {
 });
 
 // Route nhận thông báo IPN từ MoMo
+// Route nhận thông báo IPN từ MoMo
 router.post('/notify', async (req, res) => {
     const secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz";
     const { orderId, amount, resultCode, signature } = req.body;
@@ -144,7 +145,7 @@ router.post('/notify', async (req, res) => {
             await order.save();
 
             console.log(`Xóa giỏ hàng của user: ${order.userid}`);
-            // Xóa giỏ hàng
+            // Xóa giỏ hàng của người dùng theo userId
             const deleteResult = await Cart.deleteMany({ userId: order.userid });
             console.log(`Số lượng sản phẩm đã xóa: ${deleteResult.deletedCount}`);
 
@@ -159,6 +160,7 @@ router.post('/notify', async (req, res) => {
         res.status(400).send('Lỗi thanh toán');
     }
 });
+
 
 // Route trả về sau thanh toán
 router.get('/return', (req, res) => {
