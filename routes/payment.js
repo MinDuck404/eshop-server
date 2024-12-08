@@ -11,7 +11,7 @@ const orders = {}; // Lưu trạng thái đơn hàng { orderId: { status, amount
 // Hàm xác thực chữ ký từ MoMo
 const verifySignature = (data, signature, secretKey) => {
     const rawSignature = Object.keys(data)
-        .filter(key => key !== 'signature' && data[key]) // Bỏ qua 'signature'
+        .filter(key => key !== 'signature' && data[key]) // Loại bỏ `signature` và các giá trị null/undefined
         .sort()
         .map(key => `${key}=${data[key]}`)
         .join('&');
@@ -23,27 +23,24 @@ const verifySignature = (data, signature, secretKey) => {
     return computedSignature === signature;
 };
 
+
 // Route thanh toán MoMo
-router.post('/pay', (req, res) => {
+router.post('/pay', async (req, res) => {
     const partnerCode = "MOMO";
     const accessKey = "F8BBA842ECF85";
     const secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz";
-    const requestId = partnerCode + new Date().getTime();
-    const orderId = requestId;
-    const orderInfo = "pay with MoMo";
-    const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return"; // URL trả về sau thanh toán
-    const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify"; // URL thông báo IPN
-    const amount = req.body.amount || "50000"; // Số tiền thanh toán
+    const orderId = `MOMO${new Date().getTime()}`; // Tạo unique orderId
+    const requestId = orderId;
+    const amount = req.body.amount;
+    const orderInfo = "Thanh toán qua MoMo";
+    const redirectUrl = "http://localhost:8000/api/payment/return";
+    const ipnUrl = "http://localhost:8000/api/payment/notify";
     const requestType = "captureWallet";
-    const extraData = ""; // Thêm thông tin bổ sung nếu cần
+    const extraData = "";
 
-    // Tạo chữ ký bảo mật
     const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
-    const signature = crypto.createHmac('sha256', secretKey)
-        .update(rawSignature)
-        .digest('hex');
+    const signature = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
 
-    // Request body gửi đến MoMo
     const requestBody = JSON.stringify({
         partnerCode,
         accessKey,
@@ -59,7 +56,28 @@ router.post('/pay', (req, res) => {
         lang: 'en'
     });
 
-    // Gửi yêu cầu đến API MoMo
+    // Lưu orderId và các thông tin liên quan vào cơ sở dữ liệu
+    const newOrder = new Orders({
+        name: req.body.name,
+        phoneNumber: req.body.phoneNumber,
+        address: req.body.address,
+        pincode: req.body.pincode,
+        amount,
+        paymentId: orderId,
+        email: req.body.email,
+        userid: req.body.userid,
+        products: req.body.products,
+        status: "pending",
+    });
+
+    try {
+        await newOrder.save();
+        console.log(`Order created with ID: ${orderId}`);
+    } catch (err) {
+        console.error(`Error creating order: ${err.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to create order' });
+    }
+
     const options = {
         hostname: 'test-payment.momo.vn',
         port: 443,
@@ -67,34 +85,32 @@ router.post('/pay', (req, res) => {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(requestBody)
-        }
+            'Content-Length': Buffer.byteLength(requestBody),
+        },
     };
 
     const reqMoMo = https.request(options, (momoRes) => {
         let data = '';
-        momoRes.on('data', chunk => { data += chunk; });
-
+        momoRes.on('data', (chunk) => (data += chunk));
         momoRes.on('end', () => {
             const response = JSON.parse(data);
             if (response.payUrl) {
-                // Lưu trạng thái đơn hàng tạm thời
-                orders[orderId] = { status: 'pending', amount, info: orderInfo };
                 res.json({ success: true, payUrl: response.payUrl });
             } else {
-                res.status(500).json({ error: 'Thanh toán thất bại', details: response });
+                res.status(500).json({ success: false, message: 'Failed to create MoMo payment' });
             }
         });
     });
 
-    reqMoMo.on('error', (e) => {
-        console.error(`Có vấn đề với yêu cầu: ${e.message}`);
-        res.status(500).json({ error: e.message });
+    reqMoMo.on('error', (err) => {
+        console.error(`Error sending request to MoMo: ${err.message}`);
+        res.status(500).send('Payment request failed');
     });
 
     reqMoMo.write(requestBody);
     reqMoMo.end();
 });
+
 
 // Route nhận thông báo IPN từ MoMo
 router.post('/notify', async (req, res) => {
