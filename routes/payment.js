@@ -35,10 +35,6 @@ router.post('/pay', async (req, res) => {
     const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return"; // URL trả về sau khi thanh toán
     const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify"; // URL nhận thông báo IPN
     const requestType = "captureWallet";
-
-    // Tạo chữ ký bảo mật
-    const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
-    const signature = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
     const orderData = {
         name: req.body.name,
         phoneNumber: req.body.phoneNumber,
@@ -51,6 +47,11 @@ router.post('/pay', async (req, res) => {
     };
     
     const extraData = Buffer.from(JSON.stringify(orderData)).toString('base64');
+
+    // Tạo chữ ký bảo mật
+    const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
+    const signature = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
+    
     const requestBody = JSON.stringify({
         partnerCode,
         accessKey,
