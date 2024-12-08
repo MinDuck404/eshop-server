@@ -33,8 +33,8 @@ router.post('/pay', async (req, res) => {
     const requestId = orderId;
     const amount = req.body.amount;
     const orderInfo = "Thanh toán qua MoMo";
-    const redirectUrl = "http://localhost:8000/api/payment/return";
-    const ipnUrl = "http://localhost:8000/api/payment/notify";
+    const redirectUrl = "https://eshop-server-x4w1.onrender.com/api/payment/return";
+    const ipnUrl = "https://eshop-server-x4w1.onrender.com/api/payment/notify";
     const requestType = "captureWallet";
     const extraData = "";
 
