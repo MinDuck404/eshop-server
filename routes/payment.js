@@ -175,7 +175,7 @@ router.post('/notify', async (req, res) => {
                 userid: orderData?.userid,
                 products: orderData?.products,
                 date: new Date(),
-                status: 'paid'
+                status: 'Confirm'
             });
 
             // Lưu đơn hàng
