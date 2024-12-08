@@ -2,9 +2,11 @@ const express = require('express');
 const crypto = require('crypto');
 const https = require('https');
 const router = express.Router();
-const { Orders } = require('../models/orders');
-const Cart = require('../models/cart'); // Import model giỏ hàng
-const Product = require('../models/products'); // Import model sản phẩm (nếu cần)
+const Orders = require('../models/orders'); // Mô hình đơn hàng
+const Product = require('../models/products'); // Mô hình sản phẩm
+
+// Giả lập database (thực tế sẽ dùng MongoDB)
+const orders = {}; // Lưu trạng thái đơn hàng { orderId: { status, amount, info } }
 
 // Hàm xác thực chữ ký từ MoMo
 const verifySignature = (data, signature, secretKey) => {
@@ -21,6 +23,7 @@ const verifySignature = (data, signature, secretKey) => {
     return computedSignature === signature;
 };
 
+
 // Route thanh toán MoMo
 router.post('/pay', async (req, res) => {
     const partnerCode = "MOMO";
@@ -35,7 +38,6 @@ router.post('/pay', async (req, res) => {
     const requestType = "captureWallet";
     const extraData = "";
 
-    // Tạo chữ ký bảo mật
     const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
     const signature = crypto.createHmac('sha256', secretKey).update(rawSignature).digest('hex');
 
@@ -54,7 +56,7 @@ router.post('/pay', async (req, res) => {
         lang: 'en'
     });
 
-    // Lưu thông tin đơn hàng vào cơ sở dữ liệu
+    // Lưu orderId và các thông tin liên quan vào cơ sở dữ liệu
     const newOrder = new Orders({
         name: req.body.name,
         phoneNumber: req.body.phoneNumber,
@@ -76,7 +78,6 @@ router.post('/pay', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to create order' });
     }
 
-    // Gửi yêu cầu thanh toán tới MoMo
     const options = {
         hostname: 'test-payment.momo.vn',
         port: 443,
@@ -96,12 +97,7 @@ router.post('/pay', async (req, res) => {
             if (response.payUrl) {
                 res.json({ success: true, payUrl: response.payUrl });
             } else {
-                console.error('MoMo Error:', response);
-                res.status(500).json({
-                    success: false,
-                    message: 'Failed to create MoMo payment',
-                    details: response,
-                });
+                res.status(500).json({ success: false, message: 'Failed to create MoMo payment' });
             }
         });
     });
@@ -115,46 +111,51 @@ router.post('/pay', async (req, res) => {
     reqMoMo.end();
 });
 
+
 // Route nhận thông báo IPN từ MoMo
 router.post('/notify', async (req, res) => {
     const secretKey = "K951B6PE1waDMi640xX08PD3vg6EkVlz";
     const { orderId, amount, resultCode, signature } = req.body;
-
+  
     // Xác thực chữ ký
     if (!verifySignature(req.body, signature, secretKey)) {
-        console.error(`Chữ ký không hợp lệ: Order ID ${orderId}`);
-        return res.status(400).send('Chữ ký không hợp lệ');
+      console.error(`Chữ ký không hợp lệ: Order ID ${orderId}`);
+      return res.status(400).send('Chữ ký không hợp lệ');
     }
-
+  
     if (resultCode === 0) { // Thanh toán thành công
-        try {
-            // Tìm đơn hàng trong cơ sở dữ liệu bằng paymentId
-            const order = await Orders.findOne({ paymentId: orderId });
-
-            if (!order) {
-                console.error(`Không tìm thấy đơn hàng: ${orderId}`);
-                return res.status(404).send('Đơn hàng không tồn tại');
-            }
-
-            // Cập nhật trạng thái đơn hàng thành 'paid'
-            order.status = 'paid';
-            order.paymentDate = new Date();
-            await order.save();
-
-            // Xóa sản phẩm trong giỏ hàng
-            await Cart.deleteMany({ userId: order.userid });
-
-            console.log(`Đơn hàng ${orderId} đã được thanh toán và giỏ hàng đã được xóa.`);
-            res.status(200).send('OK');
-        } catch (err) {
-            console.error(`Lỗi cập nhật đơn hàng: ${err.message}`);
-            res.status(500).send('Lỗi hệ thống');
+      try {
+        // Tìm đơn hàng trong cơ sở dữ liệu bằng paymentId
+        const order = await Orders.findOne({ paymentId: orderId });
+  
+        if (!order) {
+          console.error(`Không tìm thấy đơn hàng: ${orderId}`);
+          return res.status(404).send('Đơn hàng không tồn tại');
         }
+  
+        // Cập nhật trạng thái đơn hàng thành 'paid'
+        order.status = 'paid';
+        order.paymentDate = new Date();
+        await order.save();
+  
+        // Xóa sản phẩm trong giỏ hàng
+        await Cart.deleteMany({ userId: order.userid });
+  
+        console.log(`Đơn hàng ${orderId} đã được thanh toán và giỏ hàng đã được xóa.`);
+        res.status(200).send('OK');
+      } catch (err) {
+        console.error(`Lỗi cập nhật đơn hàng: ${err.message}`);
+        res.status(500).send('Lỗi hệ thống');
+      }
     } else {
-        console.error(`Thanh toán thất bại: Order ID ${orderId}`);
-        res.status(400).send('Lỗi thanh toán');
+      console.error(`Thanh toán thất bại: Order ID ${orderId}`);
+      res.status(400).send('Lỗi thanh toán');
     }
-});
+  });
+  
+  
+
+
 
 // Route trả về sau thanh toán
 router.get('/return', (req, res) => {
