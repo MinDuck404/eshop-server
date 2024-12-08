@@ -113,19 +113,26 @@ router.post('/pay', async (req, res) => {
 });
 
 // Route nhận thông báo IPN từ MoMo
+// Route nhận thông báo IPN từ MoMo
 router.post('/notify', async (req, res) => {
     try {
         console.log('Received IPN notification:', req.body);
         
-        const { orderId, resultCode, extraData } = req.query;
+        const { signature, orderId, resultCode } = req.body;
+
+        // Xác thực chữ ký
+        if (!verifyMoMoSignature(req.body, signature)) {
+            console.error(`Invalid signature for order ${orderId}`);
+            return res.status(400).json({ message: 'Invalid signature' });
+        }
 
         // Kiểm tra kết quả thanh toán
-        if (resultCode === '0') {
+        if (String(resultCode) === '0') { // Chuyển resultCode thành chuỗi
             let orderData;
             try {
                 // Giải mã extraData nếu có
-                if (extraData) {
-                    orderData = JSON.parse(Buffer.from(extraData, 'base64').toString());
+                if (req.body.extraData) {
+                    orderData = JSON.parse(Buffer.from(req.body.extraData, 'base64').toString());
                 }
             } catch (error) {
                 console.error('Error parsing extraData:', error);
@@ -134,7 +141,7 @@ router.post('/notify', async (req, res) => {
             // Cập nhật đơn hàng với trạng thái "confirmed"
             const order = await Orders.findOne({ paymentId: orderId });
             if (order) {
-                order.status = 'confirm'; // Cập nhật trạng thái
+                order.status = 'confirmed'; // Cập nhật trạng thái
                 await order.save();
                 console.log(`Order updated successfully: ${orderId}`);
             }
@@ -160,6 +167,7 @@ router.post('/notify', async (req, res) => {
         return res.status(500).json({ message: 'Internal server error' });
     }
 });
+
 
 // Route trả về sau thanh toán
 router.get('/return', async (req, res) => {
