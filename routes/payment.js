@@ -89,7 +89,7 @@ router.post('/pay', async (req, res) => {
         email: req.body.email,
         userid: req.body.userid,
         products: req.body.products,
-        status: "pending",
+        status: "confirm",
     });
 
     try {
