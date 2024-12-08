@@ -8,33 +8,6 @@ const Product = require('../models/products'); // Model sản phẩm nếu cần
 
 
 // Route thanh toán MoMo
-
-
-// Route nhận thông báo IPN từ MoMo
-// Các thông số MoMo
-const CONFIG = {
-    partnerCode: "MOMO",
-    accessKey: "F8BBA842ECF85",
-    secretKey: "K951B6PE1waDMi640xX08PD3vg6EkVlz",
-};
-
-// Hàm xác thực chữ ký cho notify callback
-const verifyMoMoSignature = (requestBody, receivedSignature) => {
-    // Lọc và sắp xếp các tham số
-    const rawSignature = Object.keys(requestBody)
-        .filter(key => key !== 'signature' && requestBody[key] !== undefined && requestBody[key] !== null)
-        .sort()
-        .map(key => `${key}=${requestBody[key]}`)
-        .join('&');
-
-    // Tạo chữ ký mới
-    const signature = crypto
-        .createHmac('sha256', CONFIG.secretKey)
-        .update(rawSignature)
-        .digest('hex');
-
-    return signature === receivedSignature;
-};
 router.post('/pay', async (req, res) => {
     const partnerCode = "MOMO";
     const accessKey = "F8BBA842ECF85";
@@ -89,7 +62,7 @@ router.post('/pay', async (req, res) => {
         email: req.body.email,
         userid: req.body.userid,
         products: req.body.products,
-        status: "confirm",
+        status: "pending", // Đơn hàng đang chờ thanh toán
     });
 
     try {
@@ -138,26 +111,21 @@ router.post('/pay', async (req, res) => {
     reqMoMo.write(requestBody);
     reqMoMo.end();
 });
+
 // Route nhận thông báo IPN từ MoMo
 router.post('/notify', async (req, res) => {
     try {
         console.log('Received IPN notification:', req.body);
         
-        const { signature, orderId, resultCode } = req.body;
-
-        // Xác thực chữ ký
-        if (!verifyMoMoSignature(req.body, signature)) {
-            console.error(`Invalid signature for order ${orderId}`);
-            return res.status(400).json({ message: 'Invalid signature' });
-        }
+        const { orderId, resultCode, extraData } = req.body;
 
         // Kiểm tra kết quả thanh toán
-        if (resultCode === 0) {
+        if (resultCode === '0') {
             let orderData;
             try {
                 // Giải mã extraData nếu có
-                if (req.body.extraData) {
-                    orderData = JSON.parse(Buffer.from(req.body.extraData, 'base64').toString());
+                if (extraData) {
+                    orderData = JSON.parse(Buffer.from(extraData, 'base64').toString());
                 }
             } catch (error) {
                 console.error('Error parsing extraData:', error);
@@ -307,6 +275,5 @@ router.get('/return', async (req, res) => {
         `);
     }
 });
-
 
 module.exports = router;
